@@ -32,8 +32,8 @@ No Docker, database or cloud account is required.
 end-to-end-type-safety/
 ├── frontend/                  React + TypeScript + Vite app
 │   ├── src/
-│   │   ├── api/               API client code (generated OpenAPI client lands here, Milestone 6)
-│   │   ├── components/        UI components (Milestone 3)
+│   │   ├── api/               Plan type + fetch function (generated client replaces it, Milestone 6)
+│   │   ├── components/        PlanCard and price formatting
 │   │   ├── schemas/           Zod runtime schemas (Milestone 5)
 │   │   ├── App.tsx
 │   │   └── main.tsx
@@ -69,6 +69,75 @@ dotnet build
 | Aspire AppHost + dashboard | `aspire run` (from repo root) | Prints a dashboard login URL. The AppHost has no resources yet. |
 | API on its own | `dotnet run --project backend/Plans.Api` | Listens on <http://localhost:5248> (`http` launch profile). |
 | Frontend on its own | `cd frontend && npm run dev` | <http://localhost:5173> |
+
+### Running the app (API + frontend)
+
+Until Aspire orchestrates both (Milestone 7), start them in two terminals from the repo root:
+
+```bash
+# Terminal 1 — API
+dotnet run --project backend/Plans.Api
+```
+
+```bash
+# Terminal 2 — frontend
+nvm use
+cd frontend
+npm install        # first time only
+npm run dev
+```
+
+Open <http://localhost:5173>. You should see a "Choose your plan" page with a Pro card priced
+**$29.99**. If the API isn't running, the page shows an error with a **Try again** button.
+
+## Frontend
+
+The frontend is a React 19 + TypeScript + Vite single page that fetches one plan from the API and
+renders it. Requires Node 24.22.0 (`nvm use` reads [`.nvmrc`](.nvmrc)).
+
+| File | Role |
+| --- | --- |
+| [`src/api/plans.ts`](frontend/src/api/plans.ts) | `Plan` type and `fetchProPlan()`: all HTTP concerns live here |
+| [`src/App.tsx`](frontend/src/App.tsx) | Loading / error / success state and the retry action |
+| [`src/components/PlanCard.tsx`](frontend/src/components/PlanCard.tsx) | Presentational plan card |
+| [`src/components/formatPrice.ts`](frontend/src/components/formatPrice.ts) | `29.99, "USD"` → `$29.99` |
+| [`vite.config.ts`](frontend/vite.config.ts) | Dev-server proxy and Vitest configuration |
+
+### Development proxy
+
+The browser only ever calls relative URLs such as `/api/plans/pro` on the Vite origin
+(`localhost:5173`). The Vite dev server forwards every `/api/*` request to the API, so the
+browser sees a single origin and no CORS setup is needed.
+
+The proxy target comes from `API_URL` and defaults to `http://localhost:5248`. To point it
+elsewhere, set it in the shell (`API_URL=http://localhost:5299 npm run dev`) or copy
+[`frontend/.env.example`](frontend/.env.example) to `frontend/.env.local`. `API_URL` has no
+`VITE_` prefix, so it is only read by the dev server and never bundled into browser code.
+
+If the API is down, the proxy returns `502`, which the page shows as an error.
+
+### The type is trusted, not checked (intentional)
+
+`fetchProPlan()` currently does:
+
+```ts
+const plan = (await response.json()) as Plan
+```
+
+`as Plan` is a compile-time assertion. TypeScript believes it, but nothing checks the JSON at
+runtime. The `Plan` type is also hand-written, so nothing ties it to the API's OpenAPI contract.
+This is deliberate: the next milestones break the response on purpose to show why that matters,
+and then replace the assertion with runtime validation.
+
+### Frontend tests and build
+
+From `frontend/`:
+
+```bash
+npm test          # Vitest + React Testing Library (jsdom); fetch is mocked, no API needed
+npm run lint      # oxlint
+npm run build     # tsc -b type check + Vite production build into dist/
+```
 
 ### API endpoints
 
@@ -140,7 +209,7 @@ These roles stay separate throughout the demo:
 
 1. **Project foundation** ✅
 2. **ASP.NET Core API and OpenAPI** ✅
-3. TypeScript frontend
+3. **TypeScript frontend** ✅
 4. Reproducible contract-mismatch demonstration
 5. Zod runtime validation and tests
 6. Generated TypeScript API client
