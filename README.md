@@ -42,7 +42,7 @@ end-to-end-type-safety/
 ├── backend/
 │   └── Plans.Api/             ASP.NET Core minimal API
 │       ├── Program.cs
-│       ├── Models/            C# contract types (Milestone 2)
+│       ├── Models/            C# response contract (Plan.cs)
 │       └── Tests/             xUnit tests (excluded from the API build in Plans.Api.csproj)
 ├── aspire/
 │   ├── AppHost/               Aspire orchestrator: starts the API and frontend, hosts the dashboard
@@ -67,8 +67,49 @@ dotnet build
 | What | Command | Notes |
 | --- | --- | --- |
 | Aspire AppHost + dashboard | `aspire run` (from repo root) | Prints a dashboard login URL. The AppHost has no resources yet. |
-| API on its own | `dotnet run --project backend/Plans.Api` | `GET /health` returns `Healthy` in Development. |
+| API on its own | `dotnet run --project backend/Plans.Api` | Listens on <http://localhost:5248> (`http` launch profile). |
 | Frontend on its own | `cd frontend && npm run dev` | <http://localhost:5173> |
+
+### API endpoints
+
+With the API running via `dotnet run --project backend/Plans.Api`:
+
+| Endpoint | URL | Notes |
+| --- | --- | --- |
+| Pro plan | <http://localhost:5248/api/plans/pro> | `{"name":"Pro","price":29.99,"currency":"USD"}` |
+| OpenAPI document | <http://localhost:5248/openapi/v1.json> | OpenAPI 3.1, Development only |
+| Health | <http://localhost:5248/health> | Returns `Healthy`, Development only |
+| Liveness | <http://localhost:5248/alive> | Development only |
+
+The `https` profile (`dotnet run --project backend/Plans.Api --launch-profile https`) serves the
+same paths on <https://localhost:7043>.
+
+### The API contract
+
+The OpenAPI document is generated at runtime by `Microsoft.AspNetCore.OpenApi` from the C# model
+[`Plan`](backend/Plans.Api/Models/Plan.cs) and the endpoint metadata in
+[`Program.cs`](backend/Plans.Api/Program.cs). The `Plan` schema is:
+
+```json
+{
+  "required": ["name", "price", "currency"],
+  "type": "object",
+  "properties": {
+    "name": { "type": "string" },
+    "price": { "type": "number", "format": "decimal" },
+    "currency": { "type": "string" }
+  }
+}
+```
+
+Two settings in `Program.cs` keep this contract precise:
+
+- **`JsonNumberHandling.Strict`**: ASP.NET Core's default web JSON options also accept numbers
+  sent as strings, so without this the schema documents `price` as `type: ["number", "string"]`.
+- **A decimal schema transformer**: C# `decimal` is documented as `format: double` by default.
+  The transformer changes it to `format: decimal`.
+
+`backend/Plans.Api/Tests/OpenApiContractTests.cs` fails if either setting regresses.
 
 ## Testing and checks
 
@@ -98,7 +139,7 @@ These roles stay separate throughout the demo:
 ## Milestones
 
 1. **Project foundation** ✅
-2. ASP.NET Core API and OpenAPI
+2. **ASP.NET Core API and OpenAPI** ✅
 3. TypeScript frontend
 4. Reproducible contract-mismatch demonstration
 5. Zod runtime validation and tests
