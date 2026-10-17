@@ -1,15 +1,12 @@
 # End-to-End Type Safety
 
-Demo for the Frontend Nation TypeScript Day lightning talk
+Demo for the Frontend Nation TypeScript Day
 **"End-to-End Type Safety: Building Reliable TypeScript Applications with .NET Aspire."**
 
 A minimal subscription-plan app: a React + TypeScript frontend consuming an ASP.NET Core API,
 orchestrated locally by .NET Aspire. The talk walks through why `response.json() as Plan` is not
 validation, how a contract mismatch crashes the UI, and how Zod, OpenAPI-generated types and Aspire
 each play a different role.
-
-> **Status: Milestone 1 — project foundation.** The projects are scaffolded and build, but the
-> plans endpoint, OpenAPI contract, UI, Zod schemas and generated client do not exist yet.
 
 ## Prerequisites
 
