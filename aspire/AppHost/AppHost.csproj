@@ -1,0 +1,18 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.6.1">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AspireUseCliBundle>true</AspireUseCliBundle>
+    <UserSecretsId>5e710358-7136-45a9-ba6e-65013d10d0a0</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Override Aspire 13.6.1's transitive MessagePack 2.5.302 (GHSA-qhrr-8q5h-9q3h, fixed in 2.5.303).
+         Remove once an Aspire release ships the patched version. -->
+    <PackageReference Include="MessagePack" Version="2.5.307" />
+  </ItemGroup>
+
+</Project>

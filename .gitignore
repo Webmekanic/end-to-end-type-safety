@@ -1,0 +1,32 @@
+# ---- .NET ----
+bin/
+obj/
+*.user
+*.suo
+*.rsuser
+TestResults/
+*.trx
+.vs/
+
+# ---- Node / Vite ----
+node_modules/
+dist/
+dist-ssr/
+*.local
+coverage/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.tsbuildinfo
+
+# ---- Aspire ----
+.aspire/
+
+# ---- Editors / OS ----
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+.DS_Store
+*.log
