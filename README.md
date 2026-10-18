@@ -50,7 +50,7 @@ end-to-end-type-safety/
 ├── contracts/
 │   └── openapi.json           Committed OpenAPI contract exported from the API
 ├── aspire/
-│   ├── AppHost/               Aspire orchestrator: starts the API and frontend, hosts the dashboard
+│   ├── AppHost/               Aspire orchestrator: runs plans-api + frontend, hosts the dashboard
 │   └── ServiceDefaults/       Shared OpenTelemetry, health checks, service discovery, resilience
 ├── EndToEndTypeSafety.slnx    .NET solution (XML .slnx format, default in .NET 10)
 ├── aspire.config.json         Lets `aspire run` find the AppHost from the repo root
@@ -67,17 +67,74 @@ cd frontend && npm install && cd ..
 dotnet build
 ```
 
-## Running
+## Run the full application with Aspire
+
+Requires the .NET 10 SDK, Node 24 and the Aspire CLI 13.6.1 (see [Prerequisites](#prerequisites)).
+From the repo root:
+
+```bash
+aspire run
+```
+
+This builds and starts everything defined in [`aspire/AppHost/AppHost.cs`](aspire/AppHost/AppHost.cs):
+
+| Resource | What it is | Notes |
+| --- | --- | --- |
+| `plans-api` | `backend/Plans.Api` (`AddProject`) | Becomes **Healthy** once `GET /health` succeeds |
+| `frontend-installer` | `npm install` in `frontend/` | Runs once, then shows **Finished** |
+| `frontend` | `npm run dev` in `frontend/` (`AddViteApp`) | Waits for `plans-api` to be healthy. Aspire picks its port. |
+
+The startup sequence:
+
+1. Aspire starts `plans-api` and polls `/health` until it is ready (`WithHttpHealthCheck`, then
+   `WaitFor`). There are no fixed delays.
+2. Aspire starts Vite with `--port <assigned port>` and sets `API_URL` to the API's resolved
+   `http` endpoint (`WithEnvironment("API_URL", api.GetEndpoint("http"))`).
+3. [`vite.config.ts`](frontend/vite.config.ts) already reads `API_URL` and proxies `/api/*` there.
+   The browser still calls `/api/plans/pro` on its own origin.
+
+**Find the URLs.** `aspire run` prints a `Dashboard:` login URL. Open it, and the **Resources**
+page lists each resource's URLs. Click the `frontend` URL to open the app. Ports are assigned at
+startup, so always take them from the dashboard rather than assuming `5173`.
+
+**What to look at in the dashboard:**
+
+| Where | What you see |
+| --- | --- |
+| Resources | State, health and URLs for `plans-api` and `frontend`; the `frontend` → `plans-api` dependency |
+| Resources → `frontend` → details | Environment variables, including the injected `API_URL` |
+| Console | stdout from each process (Vite's startup banner, ASP.NET Core logs) |
+| Structured logs / Traces / Metrics | OpenTelemetry from `plans-api` via ServiceDefaults, e.g. one trace per `GET /api/plans/pro` |
+
+The same information is available from a second terminal: `aspire describe`, `aspire logs frontend`,
+`aspire otel traces plans-api`.
+
+**Check it works.** The `frontend` page shows the Pro card at **$29.99**. Opening
+`<frontend URL>/api/plans/pro` returns `{"name":"Pro","price":29.99,"currency":"USD"}` with
+`price` as a number.
+
+**Malformed-response demo under Aspire.** Create `frontend/.env.local` with
+`VITE_DEMO_INVALID_PLAN=true`. Then restart the `frontend` resource, either with its ⋮ menu →
+**Restart** in the dashboard, or with `aspire resource frontend restart`. Refresh the page and the
+validation error appears. To turn it off, delete the file and restart `frontend` again.
+
+**Stop.** Press `Ctrl+C` in the `aspire run` terminal (or run `aspire stop` from another one).
+Aspire stops the API and Vite as well.
+
+**Troubleshooting.** If `plans-api` fails to start with an "address already in use" error, a
+standalone `dotnet run` of the API is probably still using its port. Stop it and run `aspire run`
+again. Do the same with a standalone Vite if `frontend` reports a port conflict.
+
+## Running without Aspire
 
 | What | Command | Notes |
 | --- | --- | --- |
-| Aspire AppHost + dashboard | `aspire run` (from repo root) | Prints a dashboard login URL. The AppHost has no resources yet. |
 | API on its own | `dotnet run --project backend/Plans.Api` | Listens on <http://localhost:5248> (`http` launch profile). |
-| Frontend on its own | `cd frontend && npm run dev` | <http://localhost:5173> |
+| Frontend on its own | `cd frontend && npm run dev` | <http://localhost:5173>, proxying to `API_URL` (default `http://localhost:5248`) |
 
-### Running the app (API + frontend)
+### Running the app (API + frontend) in two terminals
 
-Until Aspire orchestrates both (a later milestone), start them in two terminals from the repo root:
+From the repo root:
 
 ```bash
 # Terminal 1 — API
@@ -234,7 +291,7 @@ C# Plan model ──▶ /openapi/v1.json ──export──▶ contracts/openapi
 
 | Step | Command (from `frontend/`) | Needs the API running? |
 | --- | --- | --- |
-| Export the contract | `npm run contract:export` | Yes. Reads `API_URL`, default `http://localhost:5248`. |
+| Export the contract | `npm run contract:export` | Yes. Reads `API_URL`, default `http://localhost:5248`. Under Aspire, use the `plans-api` http URL from the dashboard: `API_URL=<that URL> npm run contract:export`. |
 | Generate TypeScript | `npm run contract:generate` | No. Reads the committed file. |
 | Check generated code is current | `npm run contract:check` | No. Regenerates, then fails if `git diff` shows changes. |
 
@@ -317,4 +374,4 @@ These roles stay separate throughout the demo:
 4. **Reproducible contract-mismatch demonstration** ✅
 5. **Zod runtime validation and tests** ✅ (delivered together with 4)
 6. **OpenAPI-generated TypeScript contract** ✅
-7. Aspire integration, observability and demo documentation
+7. **Aspire integration (API + frontend orchestration)** ✅

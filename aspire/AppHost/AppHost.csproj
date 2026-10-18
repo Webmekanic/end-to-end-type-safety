@@ -10,9 +10,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Runs the Vite frontend as an Aspire resource (AddViteApp). -->
+    <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.6.1" />
     <!-- Override Aspire 13.6.1's transitive MessagePack 2.5.302 (GHSA-qhrr-8q5h-9q3h, fixed in 2.5.303).
          Remove once an Aspire release ships the patched version. -->
     <PackageReference Include="MessagePack" Version="2.5.307" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\backend\Plans.Api\Plans.Api.csproj" />
   </ItemGroup>
 
 </Project>
