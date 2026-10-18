@@ -23,6 +23,7 @@ export default defineConfig(({ mode }) => {
       include: ['tests/**/*.test.{ts,tsx}'],
       setupFiles: ['tests/setup.ts'],
       unstubGlobals: true,
+      unstubEnvs: true,
     },
   }
 })

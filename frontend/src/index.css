@@ -149,3 +149,10 @@ main {
 .status-error p {
   margin: 0 0 1rem;
 }
+
+.status-error .status-detail {
+  margin-top: -0.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  opacity: 0.85;
+}

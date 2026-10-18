@@ -34,7 +34,7 @@ end-to-end-type-safety/
 │   ├── src/
 │   │   ├── api/               Plan type + fetch function (generated client replaces it, Milestone 6)
 │   │   ├── components/        PlanCard and price formatting
-│   │   ├── schemas/           Zod runtime schemas (Milestone 5)
+│   │   ├── schemas/           Zod runtime schema (PlanSchema) and inferred Plan type
 │   │   ├── App.tsx
 │   │   └── main.tsx
 │   ├── tests/                 Vitest tests
@@ -97,7 +97,9 @@ renders it. Requires Node 24.22.0 (`nvm use` reads [`.nvmrc`](.nvmrc)).
 
 | File | Role |
 | --- | --- |
-| [`src/api/plans.ts`](frontend/src/api/plans.ts) | `Plan` type and `fetchProPlan()`: all HTTP concerns live here |
+| [`src/api/plans.ts`](frontend/src/api/plans.ts) | `fetchProPlan()`: HTTP request + Zod validation; components never see Zod |
+| [`src/schemas/plan.ts`](frontend/src/schemas/plan.ts) | `PlanSchema` and the inferred `Plan` type |
+| [`src/api/demoInvalidPlan.ts`](frontend/src/api/demoInvalidPlan.ts) | Dev-only broken-response demo switch |
 | [`src/App.tsx`](frontend/src/App.tsx) | Loading / error / success state and the retry action |
 | [`src/components/PlanCard.tsx`](frontend/src/components/PlanCard.tsx) | Presentational plan card |
 | [`src/components/formatPrice.ts`](frontend/src/components/formatPrice.ts) | `29.99, "USD"` → `$29.99` |
@@ -116,18 +118,46 @@ elsewhere, set it in the shell (`API_URL=http://localhost:5299 npm run dev`) or 
 
 If the API is down, the proxy returns `502`, which the page shows as an error.
 
-### The type is trusted, not checked (intentional)
+### Runtime validation with Zod
 
-`fetchProPlan()` currently does:
+**Why `as Plan` was unsafe.** The first version did
+`const plan = (await response.json()) as Plan`. `response.json()` returns `any`, and `as Plan`
+only tells the compiler to trust it. Types are erased at runtime, so if the API sends
+`"price": "29.99"`, nothing objects until `formatPrice` calls `price.toFixed(2)` and throws
+`TypeError: price.toFixed is not a function`. React then unmounts the whole page. TypeScript
+reports zero errors throughout.
 
-```ts
-const plan = (await response.json()) as Plan
-```
+**What replaced it.** [`src/schemas/plan.ts`](frontend/src/schemas/plan.ts) defines `PlanSchema`.
+It is a runtime object that checks real values: `name` is a non-empty string, `price` is a
+non-negative finite number (strings are rejected, never coerced), and `currency` is three uppercase
+letters. The `Plan` type is derived from it with `z.infer`, so the type and the check can't drift.
+`fetchProPlan()` treats the body as `unknown`, runs `PlanSchema.safeParse()`, and returns
+`result.data` or throws a `PlanValidationError` listing each issue, for example
+`price: Invalid input: expected number, received string`.
 
-`as Plan` is a compile-time assertion. TypeScript believes it, but nothing checks the JSON at
-runtime. The `Plan` type is also hand-written, so nothing ties it to the API's OpenAPI contract.
-This is deliberate: the next milestones break the response on purpose to show why that matters,
-and then replace the assertion with runtime validation.
+| | Checks | When | Catches `"price": "29.99"`? |
+| --- | --- | --- | --- |
+| TypeScript (`Plan` type) | Your code | Compile time | No. The JSON doesn't exist yet. |
+| Zod (`PlanSchema`) | The data | Runtime, at the fetch boundary | Yes |
+
+### Demo: simulate a broken API response
+
+The real API always returns a correct response. To show what happens when a server breaks the
+contract, a **development-only** switch makes the frontend substitute
+`{"name":"Pro","price":"29.99","currency":"USD"}` for the API's body. The real request still goes
+through the proxy, and the substituted body goes through the same Zod validation.
+
+1. Create `frontend/.env.local` containing `VITE_DEMO_INVALID_PLAN=true`.
+2. Restart Vite (`Ctrl+C`, then `npm run dev`). Vite reads env files only at startup.
+3. Open <http://localhost:5173>. The card is replaced by
+   *"We couldn't load the plan. The server sent an invalid plan response."* followed by
+   `price: Invalid input: expected number, received string` and a **Try again** button.
+   The rest of the page keeps working.
+
+To turn it off, delete `.env.local` (or set the value to anything other than `true`) and restart
+Vite. The Pro card at **$29.99** returns. The switch lives in
+[`src/api/demoInvalidPlan.ts`](frontend/src/api/demoInvalidPlan.ts). It also checks
+`import.meta.env.DEV`, so it compiles to `return false` in production builds.
 
 ### Frontend tests and build
 
@@ -137,6 +167,12 @@ From `frontend/`:
 npm test          # Vitest + React Testing Library (jsdom); fetch is mocked, no API needed
 npm run lint      # oxlint
 npm run build     # tsc -b type check + Vite production build into dist/
+```
+
+Full verification before a demo, from the repo root:
+
+```bash
+(cd frontend && npm ci && npm run lint && npm test && npm run build) && dotnet build && dotnet test
 ```
 
 ### API endpoints
@@ -210,7 +246,7 @@ These roles stay separate throughout the demo:
 1. **Project foundation** ✅
 2. **ASP.NET Core API and OpenAPI** ✅
 3. **TypeScript frontend** ✅
-4. Reproducible contract-mismatch demonstration
-5. Zod runtime validation and tests
+4. **Reproducible contract-mismatch demonstration** ✅
+5. **Zod runtime validation and tests** ✅ (delivered together with 4)
 6. Generated TypeScript API client
 7. Aspire integration, observability and demo documentation

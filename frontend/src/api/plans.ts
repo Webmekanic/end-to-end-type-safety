@@ -1,9 +1,19 @@
-// The shape we *expect* from GET /api/plans/pro.
-// Hand-written for now; it is a compile-time promise only and does not exist at runtime.
-export type Plan = {
-  name: string
-  price: number
-  currency: string
+import type * as z from 'zod'
+import { PlanSchema, type Plan } from '../schemas/plan.ts'
+import { invalidPlanPayload, isInvalidPlanDemoEnabled } from './demoInvalidPlan.ts'
+
+export type { Plan }
+
+// Thrown when the API responds 2xx but the body doesn't match the plan contract.
+export class PlanValidationError extends Error {
+  readonly issues: string[]
+
+  constructor(zodIssues: z.core.$ZodIssue[]) {
+    const issues = zodIssues.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+    super(`Invalid plan response from /api/plans/pro — ${issues.join('; ')}`)
+    this.name = 'PlanValidationError'
+    this.issues = issues
+  }
 }
 
 export async function fetchProPlan(signal?: AbortSignal): Promise<Plan> {
@@ -14,11 +24,14 @@ export async function fetchProPlan(signal?: AbortSignal): Promise<Plan> {
     throw new Error(`Failed to load plan (HTTP ${response.status})`)
   }
 
-  // ⚠️ INTENTIONALLY UNSAFE (kept for the demo).
-  // `as Plan` tells the compiler to trust us; nothing checks the JSON at runtime.
-  // If the API sends `"price": "29.99"`, this line still "succeeds" and the bad
-  // value flows into the UI. A later milestone replaces this with Zod validation.
-  const plan = (await response.json()) as Plan
+  // JSON from the network is untrusted until validated.
+  const body: unknown = isInvalidPlanDemoEnabled() ? invalidPlanPayload : await response.json()
 
-  return plan
+  // Checks the real value at runtime, replacing the old `as Plan` assertion.
+  const result = PlanSchema.safeParse(body)
+  if (!result.success) {
+    throw new PlanValidationError(result.error.issues)
+  }
+
+  return result.data
 }
