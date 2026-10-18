@@ -1,6 +1,8 @@
 import type * as z from 'zod'
-import { PlanSchema, type Plan } from '../schemas/plan.ts'
+import { PlanSchema } from '../schemas/plan.ts'
 import { invalidPlanPayload, isInvalidPlanDemoEnabled } from './demoInvalidPlan.ts'
+// Generated from contracts/openapi.json: what the API *promises* (compile time only).
+import type { Plan } from './generated/index.ts'
 
 export type { Plan }
 

@@ -1,0 +1,59 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Plans.Api | v1",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/plans/pro": {
+      "get": {
+        "tags": [
+          "Plans"
+        ],
+        "summary": "Get the Pro subscription plan",
+        "operationId": "GetProPlan",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Plan": {
+        "required": [
+          "name",
+          "price",
+          "currency"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "price": {
+            "type": "number",
+            "format": "decimal"
+          },
+          "currency": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Plans"
+    }
+  ]
+}

@@ -32,18 +32,23 @@ No Docker, database or cloud account is required.
 end-to-end-type-safety/
 ├── frontend/                  React + TypeScript + Vite app
 │   ├── src/
-│   │   ├── api/               Plan type + fetch function (generated client replaces it, Milestone 6)
+│   │   ├── api/               fetchProPlan() + demo switch
+│   │   │   └── generated/     TypeScript types generated from contracts/openapi.json (committed)
 │   │   ├── components/        PlanCard and price formatting
-│   │   ├── schemas/           Zod runtime schema (PlanSchema) and inferred Plan type
+│   │   ├── schemas/           Zod runtime schema (PlanSchema)
 │   │   ├── App.tsx
 │   │   └── main.tsx
+│   ├── scripts/               export-openapi.mjs (saves the API's contract)
 │   ├── tests/                 Vitest tests
+│   ├── openapi-ts.config.ts   Type generator config
 │   └── package.json
 ├── backend/
 │   └── Plans.Api/             ASP.NET Core minimal API
 │       ├── Program.cs
 │       ├── Models/            C# response contract (Plan.cs)
 │       └── Tests/             xUnit tests (excluded from the API build in Plans.Api.csproj)
+├── contracts/
+│   └── openapi.json           Committed OpenAPI contract exported from the API
 ├── aspire/
 │   ├── AppHost/               Aspire orchestrator: starts the API and frontend, hosts the dashboard
 │   └── ServiceDefaults/       Shared OpenTelemetry, health checks, service discovery, resilience
@@ -72,7 +77,7 @@ dotnet build
 
 ### Running the app (API + frontend)
 
-Until Aspire orchestrates both (Milestone 7), start them in two terminals from the repo root:
+Until Aspire orchestrates both (a later milestone), start them in two terminals from the repo root:
 
 ```bash
 # Terminal 1 — API
@@ -98,7 +103,8 @@ renders it. Requires Node 24.22.0 (`nvm use` reads [`.nvmrc`](.nvmrc)).
 | File | Role |
 | --- | --- |
 | [`src/api/plans.ts`](frontend/src/api/plans.ts) | `fetchProPlan()`: HTTP request + Zod validation; components never see Zod |
-| [`src/schemas/plan.ts`](frontend/src/schemas/plan.ts) | `PlanSchema` and the inferred `Plan` type |
+| [`src/schemas/plan.ts`](frontend/src/schemas/plan.ts) | `PlanSchema`, the runtime check |
+| [`src/api/generated/`](frontend/src/api/generated/types.gen.ts) | Generated `Plan` type. Don't edit; regenerate. |
 | [`src/api/demoInvalidPlan.ts`](frontend/src/api/demoInvalidPlan.ts) | Dev-only broken-response demo switch |
 | [`src/App.tsx`](frontend/src/App.tsx) | Loading / error / success state and the retry action |
 | [`src/components/PlanCard.tsx`](frontend/src/components/PlanCard.tsx) | Presentational plan card |
@@ -130,14 +136,15 @@ reports zero errors throughout.
 **What replaced it.** [`src/schemas/plan.ts`](frontend/src/schemas/plan.ts) defines `PlanSchema`.
 It is a runtime object that checks real values: `name` is a non-empty string, `price` is a
 non-negative finite number (strings are rejected, never coerced), and `currency` is three uppercase
-letters. The `Plan` type is derived from it with `z.infer`, so the type and the check can't drift.
+letters. The `Plan` type comes from the OpenAPI contract (see [Contract workflow](#contract-workflow-openapi--typescript)),
+and a type-level test checks that `z.infer<typeof PlanSchema>` is exactly that type.
 `fetchProPlan()` treats the body as `unknown`, runs `PlanSchema.safeParse()`, and returns
 `result.data` or throws a `PlanValidationError` listing each issue, for example
 `price: Invalid input: expected number, received string`.
 
 | | Checks | When | Catches `"price": "29.99"`? |
 | --- | --- | --- | --- |
-| TypeScript (`Plan` type) | Your code | Compile time | No. The JSON doesn't exist yet. |
+| TypeScript (generated `Plan` type) | Your code | Compile time | No. The JSON doesn't exist yet. |
 | Zod (`PlanSchema`) | The data | Runtime, at the fetch boundary | Yes |
 
 ### Demo: simulate a broken API response
@@ -216,6 +223,66 @@ Two settings in `Program.cs` keep this contract precise:
 
 `backend/Plans.Api/Tests/OpenApiContractTests.cs` fails if either setting regresses.
 
+## Contract workflow (OpenAPI → TypeScript)
+
+The backend's OpenAPI document is the single source for the frontend's `Plan` type.
+
+```text
+C# Plan model ──▶ /openapi/v1.json ──export──▶ contracts/openapi.json ──generate──▶ src/api/generated/
+  (backend)        (running API)                  (committed)                       (committed)
+```
+
+| Step | Command (from `frontend/`) | Needs the API running? |
+| --- | --- | --- |
+| Export the contract | `npm run contract:export` | Yes. Reads `API_URL`, default `http://localhost:5248`. |
+| Generate TypeScript | `npm run contract:generate` | No. Reads the committed file. |
+| Check generated code is current | `npm run contract:check` | No. Regenerates, then fails if `git diff` shows changes. |
+
+**Generator:** [`@hey-api/openapi-ts`](https://heyapi.dev) (pinned to `0.99.0`, config in
+[`openapi-ts.config.ts`](frontend/openapi-ts.config.ts)) with only the `@hey-api/typescript`
+plugin. It emits **types only, no runtime client**. The existing `fetchProPlan()` keeps owning the
+request, so Zod stays in the path. It supports OpenAPI 3.1 and TypeScript 6, and its output is
+deterministic. (`openapi-typescript` was the other candidate, but its current release declares
+`typescript@^5` only.) An npm `overrides` entry pins its transitive `js-yaml` to `^4.3.2` to clear
+audit advisories.
+
+The export removes the document's `servers` entry, because ASP.NET Core fills it from whichever
+host and port served the request.
+
+**Drift checks:**
+
+- `dotnet test` (`Committed_contract_matches_the_live_document`) fails if the API's live document no
+  longer matches `contracts/openapi.json`, which means someone changed the backend without
+  re-exporting.
+- `npm run typecheck` / `npm run build` fails if the Zod schema and the generated `Plan` type differ
+  ([`tests/contract.test.ts`](frontend/tests/contract.test.ts)).
+
+### When the backend contract changes
+
+1. Change the C# model or endpoint, then run `dotnet test`. The contract test fails, as expected.
+2. Start the API, then from `frontend/` run `npm run contract:export && npm run contract:generate`.
+3. Run `npm run typecheck`. The compiler points at every place the frontend disagrees with the new
+   contract, including `PlanSchema`.
+4. Update the frontend and the Zod schema, then run `npm test` and `dotnet test` until both pass.
+5. Commit the model, `contracts/openapi.json` and `src/api/generated/` together.
+
+Zod stays even with generated types: they only describe what the API *promises* at build time.
+They can't see the bytes that actually arrive.
+
+### Try it: watch drift become a compile error (2 minutes, no backend change)
+
+From `frontend/`:
+
+```bash
+# Pretend the backend now allows string prices (the Strict-number-handling regression)
+node -e 'const f="../contracts/openapi.json",d=require(f);d.components.schemas.Plan.properties.price.type=["number","string"];require("fs").writeFileSync(f,JSON.stringify(d,null,2)+"\n")'
+npm run contract:generate
+npm run typecheck   # ✗ PlanCard.tsx: 'string | number' is not assignable to 'number'
+                    # ✗ contract.test.ts: PlanSchema no longer matches Plan
+
+git checkout -- ../contracts/openapi.json && npm run contract:generate   # undo
+```
+
 ## Testing and checks
 
 ```bash
@@ -225,8 +292,9 @@ dotnet test
 
 # Frontend (from frontend/)
 npm run lint
-npm test          # Vitest, single run
-npm run build     # tsc -b type check + Vite production build
+npm test                # Vitest, single run
+npm run build           # tsc -b type check (incl. contract type test) + Vite production build
+npm run contract:check  # generated types match contracts/openapi.json
 ```
 
 ## What each piece is responsible for
@@ -248,5 +316,5 @@ These roles stay separate throughout the demo:
 3. **TypeScript frontend** ✅
 4. **Reproducible contract-mismatch demonstration** ✅
 5. **Zod runtime validation and tests** ✅ (delivered together with 4)
-6. Generated TypeScript API client
+6. **OpenAPI-generated TypeScript contract** ✅
 7. Aspire integration, observability and demo documentation
